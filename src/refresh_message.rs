@@ -196,38 +196,32 @@ impl<E: Curve, H: Digest + Clone, const M: usize> RefreshMessage<E, H, M> {
         parameters: &'a ShamirSecretSharing,
         ek: &'a EncryptionKey,
     ) -> (RawCiphertext<'a>, Vec<Scalar<E>>) {
-        // TODO: check we have large enough qualified set , at least t+1
-        //decrypt the new share
-        // we first homomorphically add all ciphertext encrypted using our encryption key
-        let ciphertext_vec: Vec<_> = (0..refresh_messages.len())
-            .map(|k| refresh_messages[k].points_encrypted_vec[(party_index - 1) as usize].clone())
-            .collect();
-
-        let indices: Vec<u16> = (0..(parameters.threshold + 1) as usize)
+        let indices: Vec<u16> = (0..refresh_messages.len())
             .map(|i| refresh_messages[i].old_party_index - 1)
             .collect();
-
-        // optimization - one decryption
-        let li_vec: Vec<_> = (0..parameters.threshold as usize + 1)
+        let ct_vec: Vec<_> = refresh_messages
+            .iter()
+            .map(|msg| msg.points_encrypted_vec[(party_index - 1) as usize].clone())
+            .collect();
+        let li_vec: Vec<_> = indices
+            .iter()
             .map(|i| {
                 VerifiableSS::<E, sha2::Sha256>::map_share_to_new_params(
                     parameters.clone().borrow(),
-                    indices[i],
+                    *i,
                     &indices,
                 )
             })
             .collect();
-
-        let ciphertext_vec_at_indices_mapped: Vec<_> = (0..(parameters.threshold + 1) as usize)
+        let ciphertext_vec_at_indices_mapped: Vec<_> = (0..indices.len())
             .map(|i| {
                 Paillier::mul(
                     ek,
-                    RawCiphertext::from(ciphertext_vec[i].clone()),
+                    RawCiphertext::from(ct_vec[i].clone()),
                     RawPlaintext::from(li_vec[i].to_bigint()),
                 )
             })
             .collect();
-
         let ciphertext_sum = ciphertext_vec_at_indices_mapped.iter().fold(
             Paillier::encrypt(ek, RawPlaintext::from(BigInt::zero())),
             |acc, x| Paillier::add(ek, acc, x.clone()),
@@ -457,7 +451,7 @@ impl<E: Curve, H: Digest + Clone, const M: usize> RefreshMessage<E, H, M> {
                 i,
                 refresh_messages[0].points_committed_vec[i].clone() * li_vec[0].clone(),
             );
-            for j in 1..local_key.t as usize + 1 {
+            for j in 1..refresh_messages.len() {
                 local_key.pk_vec[i] = local_key.pk_vec[i].clone()
                     + refresh_messages[j].points_committed_vec[i].clone() * li_vec[j].clone();
             }
