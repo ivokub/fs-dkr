@@ -203,27 +203,26 @@ impl<E: Curve, H: Digest + Clone, const M: usize> RefreshMessage<E, H, M> {
             .map(|k| refresh_messages[k].points_encrypted_vec[(party_index - 1) as usize].clone())
             .collect();
 
-        let indices: Vec<u16> = (0..(parameters.threshold + 1) as usize)
-            .map(|i| refresh_messages[i].old_party_index - 1)
-            .collect();
+        let indices: Vec<u16>= refresh_messages.iter().map(|msg| msg.old_party_index-1).collect();
 
         // optimization - one decryption
-        let li_vec: Vec<_> = (0..parameters.threshold as usize + 1)
+        let li_vec: Vec<_> = indices.iter()
             .map(|i| {
                 VerifiableSS::<E, sha2::Sha256>::map_share_to_new_params(
                     parameters.clone().borrow(),
-                    indices[i],
+                    *i,
                     &indices,
                 )
             })
             .collect();
 
-        let ciphertext_vec_at_indices_mapped: Vec<_> = (0..(parameters.threshold + 1) as usize)
+        let ciphertext_vec_at_indices_mapped: Vec<_> = indices.iter()
+        // (0..(parameters.threshold + 1) as usize)
             .map(|i| {
                 Paillier::mul(
                     ek,
-                    RawCiphertext::from(ciphertext_vec[i].clone()),
-                    RawPlaintext::from(li_vec[i].to_bigint()),
+                    RawCiphertext::from(ciphertext_vec[*i as usize].clone()),
+                    RawPlaintext::from(li_vec[*i as usize].to_bigint()),
                 )
             })
             .collect();
