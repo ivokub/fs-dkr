@@ -17,7 +17,6 @@ use paillier::{
     Paillier, Randomness, RawCiphertext, RawPlaintext,
 };
 use serde::{Deserialize, Serialize};
-use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use zeroize::Zeroize;
@@ -208,7 +207,7 @@ impl<E: Curve, H: Digest + Clone, const M: usize> RefreshMessage<E, H, M> {
             .iter()
             .map(|i| {
                 VerifiableSS::<E, sha2::Sha256>::map_share_to_new_params(
-                    parameters.clone().borrow(),
+                    &parameters,
                     *i,
                     &indices,
                 )
@@ -317,7 +316,7 @@ impl<E: Curve, H: Digest + Clone, const M: usize> RefreshMessage<E, H, M> {
 
     pub fn collect(
         refresh_messages: &[Self],
-        mut local_key: &mut LocalKey<E>,
+        local_key: &mut LocalKey<E>,
         new_dk: DecryptionKey,
         join_messages: &[JoinMessage<E, H, M>],
     ) -> FsDkrResult<()> {
