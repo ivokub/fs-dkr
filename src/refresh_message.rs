@@ -52,6 +52,7 @@ impl<E: Curve, H: Digest + Clone, const M: usize> RefreshMessage<E, H, M> {
         old_party_index: u16,
         local_key: &mut LocalKey<E>,
         new_n: u16,
+        new_t: u16,
     ) -> FsDkrResult<(RefreshMessage<E, H, M>, DecryptionKey)> {
         assert!(local_key.t <= new_n / 2);
         let secret = local_key.keys_linear.x_i.clone();
@@ -59,7 +60,7 @@ impl<E: Curve, H: Digest + Clone, const M: usize> RefreshMessage<E, H, M> {
         if new_n <= local_key.t {
             return Err(FsDkrError::NewPartyUnassignedIndexError);
         }
-        let (vss_scheme, secret_shares) = VerifiableSS::<E, sha2::Sha256>::share(local_key.t, new_n, &secret);
+        let (vss_scheme, secret_shares) = VerifiableSS::<E, sha2::Sha256>::share(new_t, new_n, &secret);
 
         local_key.vss_scheme = vss_scheme.clone();
 
@@ -235,6 +236,7 @@ impl<E: Curve, H: Digest + Clone, const M: usize> RefreshMessage<E, H, M> {
         key: &mut LocalKey<E>,
         old_to_new_map: &HashMap<u16, u16>,
         new_n: u16,
+        new_t: u16,
     ) -> FsDkrResult<(Self, DecryptionKey)> {
         let current_len = key.paillier_key_vec.len() as u16;
         let mut paillier_key_h1_h2_n_tilde_hash_map: HashMap<u16, (EncryptionKey, DLogStatement)> =
@@ -308,8 +310,9 @@ impl<E: Curve, H: Digest + Clone, const M: usize> RefreshMessage<E, H, M> {
         let old_party_index = key.i;
         key.i = *old_to_new_map.get(&key.i).unwrap();
         key.n = new_n;
+        key.t = new_t;
 
-        RefreshMessage::distribute(old_party_index, key, new_n as u16)
+        RefreshMessage::distribute(old_party_index, key, new_n as u16, new_t)
     }
 
     pub fn collect(
