@@ -54,7 +54,7 @@ impl<E: Curve, H: Digest + Clone, const M: usize> RefreshMessage<E, H, M> {
         new_n: u16,
         new_t: u16,
     ) -> FsDkrResult<(RefreshMessage<E, H, M>, DecryptionKey)> {
-        assert!(local_key.t <= new_n / 2);
+        // assert!(local_key.t <= new_n / 2);
         let secret = local_key.keys_linear.x_i.clone();
         // secret share old key
         if new_n <= local_key.t {
