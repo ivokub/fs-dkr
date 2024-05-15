@@ -17,7 +17,6 @@ use paillier::{
     Paillier, Randomness, RawCiphertext, RawPlaintext,
 };
 use serde::{Deserialize, Serialize};
-use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use zeroize::Zeroize;
@@ -52,14 +51,15 @@ impl<E: Curve, H: Digest + Clone, const M: usize> RefreshMessage<E, H, M> {
         old_party_index: u16,
         local_key: &mut LocalKey<E>,
         new_n: u16,
+        new_t: u16,
     ) -> FsDkrResult<(RefreshMessage<E, H, M>, DecryptionKey)> {
-        assert!(local_key.t <= new_n / 2);
+        // assert!(local_key.t <= new_n / 2);
         let secret = local_key.keys_linear.x_i.clone();
         // secret share old key
         if new_n <= local_key.t {
             return Err(FsDkrError::NewPartyUnassignedIndexError);
         }
-        let (vss_scheme, secret_shares) = VerifiableSS::<E, sha2::Sha256>::share(local_key.t, new_n, &secret);
+        let (vss_scheme, secret_shares) = VerifiableSS::<E, sha2::Sha256>::share(new_t, new_n, &secret);
 
         local_key.vss_scheme = vss_scheme.clone();
 
@@ -196,38 +196,32 @@ impl<E: Curve, H: Digest + Clone, const M: usize> RefreshMessage<E, H, M> {
         parameters: &'a ShamirSecretSharing,
         ek: &'a EncryptionKey,
     ) -> (RawCiphertext<'a>, Vec<Scalar<E>>) {
-        // TODO: check we have large enough qualified set , at least t+1
-        //decrypt the new share
-        // we first homomorphically add all ciphertext encrypted using our encryption key
-        let ciphertext_vec: Vec<_> = (0..refresh_messages.len())
-            .map(|k| refresh_messages[k].points_encrypted_vec[(party_index - 1) as usize].clone())
-            .collect();
-
-        let indices: Vec<u16> = (0..(parameters.threshold + 1) as usize)
+        let indices: Vec<u16> = (0..refresh_messages.len())
             .map(|i| refresh_messages[i].old_party_index - 1)
             .collect();
-
-        // optimization - one decryption
-        let li_vec: Vec<_> = (0..parameters.threshold as usize + 1)
+        let ct_vec: Vec<_> = refresh_messages
+            .iter()
+            .map(|msg| msg.points_encrypted_vec[(party_index - 1) as usize].clone())
+            .collect();
+        let li_vec: Vec<_> = indices
+            .iter()
             .map(|i| {
                 VerifiableSS::<E, sha2::Sha256>::map_share_to_new_params(
-                    parameters.clone().borrow(),
-                    indices[i],
+                    &parameters,
+                    *i,
                     &indices,
                 )
             })
             .collect();
-
-        let ciphertext_vec_at_indices_mapped: Vec<_> = (0..(parameters.threshold + 1) as usize)
+        let ciphertext_vec_at_indices_mapped: Vec<_> = (0..indices.len())
             .map(|i| {
                 Paillier::mul(
                     ek,
-                    RawCiphertext::from(ciphertext_vec[i].clone()),
+                    RawCiphertext::from(ct_vec[i].clone()),
                     RawPlaintext::from(li_vec[i].to_bigint()),
                 )
             })
             .collect();
-
         let ciphertext_sum = ciphertext_vec_at_indices_mapped.iter().fold(
             Paillier::encrypt(ek, RawPlaintext::from(BigInt::zero())),
             |acc, x| Paillier::add(ek, acc, x.clone()),
@@ -241,6 +235,7 @@ impl<E: Curve, H: Digest + Clone, const M: usize> RefreshMessage<E, H, M> {
         key: &mut LocalKey<E>,
         old_to_new_map: &HashMap<u16, u16>,
         new_n: u16,
+        new_t: u16,
     ) -> FsDkrResult<(Self, DecryptionKey)> {
         let current_len = key.paillier_key_vec.len() as u16;
         let mut paillier_key_h1_h2_n_tilde_hash_map: HashMap<u16, (EncryptionKey, DLogStatement)> =
@@ -314,13 +309,14 @@ impl<E: Curve, H: Digest + Clone, const M: usize> RefreshMessage<E, H, M> {
         let old_party_index = key.i;
         key.i = *old_to_new_map.get(&key.i).unwrap();
         key.n = new_n;
+        key.t = new_t;
 
-        RefreshMessage::distribute(old_party_index, key, new_n as u16)
+        RefreshMessage::distribute(old_party_index, key, new_n as u16, new_t)
     }
 
     pub fn collect(
         refresh_messages: &[Self],
-        mut local_key: &mut LocalKey<E>,
+        local_key: &mut LocalKey<E>,
         new_dk: DecryptionKey,
         join_messages: &[JoinMessage<E, H, M>],
     ) -> FsDkrResult<()> {
@@ -457,7 +453,7 @@ impl<E: Curve, H: Digest + Clone, const M: usize> RefreshMessage<E, H, M> {
                 i,
                 refresh_messages[0].points_committed_vec[i].clone() * li_vec[0].clone(),
             );
-            for j in 1..local_key.t as usize + 1 {
+            for j in 1..refresh_messages.len() {
                 local_key.pk_vec[i] = local_key.pk_vec[i].clone()
                     + refresh_messages[j].points_committed_vec[i].clone() * li_vec[j].clone();
             }
